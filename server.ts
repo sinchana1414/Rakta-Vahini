@@ -22,43 +22,56 @@ const ai = new GoogleGenAI({
 
 // Gemini AI Endpoints
 app.post('/api/ai/explain-eligibility', async (req, res) => {
-  const { lastDonationDate, name } = req.body;
+  const { lastDonationDate, name, language } = req.body;
   try {
+    const langPrompt = language === 'kn' ? 'Response MUST BE in Kannada language.' : 'Response MUST BE in English.';
+    const prompt = `Explain blood donation eligibility for ${name}. Their last donation was on ${lastDonationDate}. 
+      The rule is a 90-day wait period. Be encouraging and helpful. Keep it short (2-3 sentences). ${langPrompt}`;
+    
     const response = await ai.models.generateContent({
-      model: 'gemini-3-flash-preview',
-      contents: `Explain blood donation eligibility for ${name}. Their last donation was on ${lastDonationDate}. 
-      The rule is a 90-day wait period. Be encouraging and helpful. Keep it short (2-3 sentences).`,
+      model: "gemini-3-flash-preview",
+      contents: prompt
     });
     res.json({ text: response.text });
   } catch (error) {
+    console.error(error);
     res.status(500).json({ error: 'AI explanation failed' });
   }
 });
 
 app.post('/api/ai/guidance', async (req, res) => {
+  const { language } = req.body;
   try {
+    const langPrompt = language === 'kn' ? 'Response MUST BE in Kannada language.' : 'Response MUST BE in English.';
+    const prompt = `Provide 3 quick, bulleted health tips for blood donors in rural India. 
+      Focus on hydration, rest, and local diet suggestions. Keep it simple and actionable. ${langPrompt}`;
+    
     const response = await ai.models.generateContent({
-      model: 'gemini-3-flash-preview',
-      contents: `Provide 3 quick, bulleted health tips for blood donors in rural India. 
-      Focus on hydration, rest, and local diet suggestions. Keep it simple and actionable.`,
+      model: "gemini-3-flash-preview",
+      contents: prompt
     });
     res.json({ text: response.text });
   } catch (error) {
+    console.error(error);
     res.status(500).json({ error: 'AI guidance failed' });
   }
 });
 
 app.post('/api/ai/emergency-broadcast', async (req, res) => {
-  const { bloodGroup, hospital, area } = req.body;
+  const { bloodGroup, hospital, area, language } = req.body;
   try {
-    const response = await ai.models.generateContent({
-      model: 'gemini-3-flash-preview',
-      contents: `Generate a professional, urgent blood request message for social media/WhatsApp.
+    const langPrompt = language === 'kn' ? 'Response MUST BE in Kannada language.' : 'Response MUST BE in English.';
+    const prompt = `Generate a professional, urgent blood request message for social media/WhatsApp.
       Details: Blood Group ${bloodGroup}, Hospital: ${hospital}, Area: ${area}. 
-      Include a call to action but DO NOT include a phone number placeholders (the app handles calling).`,
+      Include a call to action but DO NOT include a phone number placeholders (the app handles calling). ${langPrompt}`;
+    
+    const response = await ai.models.generateContent({
+      model: "gemini-3-flash-preview",
+      contents: prompt
     });
     res.json({ text: response.text });
   } catch (error) {
+    console.error(error);
     res.status(500).json({ error: 'AI broadcast generation failed' });
   }
 });

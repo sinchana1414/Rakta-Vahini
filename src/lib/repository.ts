@@ -1,9 +1,24 @@
-import { type Donor, db } from './db';
+import { db as firestore } from './firebase';
+import { collection, getDocs, query, where } from 'firebase/firestore';
 import { checkEligibility } from './eligibility';
 
-export const getDonorStats = async () => {
-  const allDonors = await db.donors.toArray();
-  const now = new Date();
+export interface Donor {
+  id?: string;
+  userId: string;
+  name: string;
+  phone: string;
+  bloodGroup: string;
+  location: string;
+  village: string;
+  lastDonationDate: string | null;
+  isReadyToDonate: boolean;
+  registeredAt: number;
+}
+
+export const getDonorStatsFromFirestore = async () => {
+  const donorsRef = collection(firestore, 'donors');
+  const snapshot = await getDocs(donorsRef);
+  const allDonors = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Donor));
   
   const eligibleCount = allDonors.filter(d => checkEligibility(d.lastDonationDate).isEligible).length;
   const readyCount = allDonors.filter(d => d.isReadyToDonate).length;
@@ -15,15 +30,21 @@ export const getDonorStats = async () => {
   };
 };
 
-export const searchDonors = async (bloodGroup: string, location?: string) => {
-  let collection = db.donors.where('bloodGroup').equals(bloodGroup);
+export const searchDonorsInFirestore = async (bloodGroup: string, location?: string) => {
+  const donorsRef = collection(firestore, 'donors');
+  const q = query(
+    donorsRef, 
+    where('bloodGroup', '==', bloodGroup),
+    where('isReadyToDonate', '==', true)
+  );
   
-  const results = await collection.toArray();
+  const snapshot = await getDocs(q);
+  const results = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Donor));
   
-  // Filter for matching ready/eligible on client side for complex logic
+  // Filter for matching eligible on client side for complex date logic
   return results.filter(donor => {
     const { isEligible } = checkEligibility(donor.lastDonationDate);
-    const locationMatch = !location || donor.location.toLowerCase().includes(location.toLowerCase());
-    return donor.isReadyToDonate && isEligible && locationMatch;
+    const locationMatch = !location || donor.location.toLowerCase().includes(location.toLowerCase()) || donor.village.toLowerCase().includes(location.toLowerCase());
+    return isEligible && locationMatch;
   });
 };

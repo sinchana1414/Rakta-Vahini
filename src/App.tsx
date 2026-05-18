@@ -20,22 +20,65 @@ import {
   ChevronLeft,
   LifeBuoy,
   MessageSquare,
-  AlertCircle
+  AlertCircle,
+  Languages,
+  LogOut,
+  LogIn
 } from 'lucide-react';
-import { useLiveQuery } from 'dexie-react-hooks';
-import { db, type Donor, type Donation } from './lib/db';
+import { onSnapshot, collection, doc, setDoc, updateDoc, addDoc, query, where, orderBy, onSnapshot as onSnapshotFirestore } from 'firebase/firestore';
+import { onAuthStateChanged, signOut, User as FirebaseUser } from 'firebase/auth';
+import { auth, db as firestore, signInWithGoogle } from './lib/firebase';
 import { checkEligibility, BLOOD_GROUPS, WAIT_PERIOD_DAYS } from './lib/eligibility';
-import { getDonorStats, searchDonors } from './lib/repository';
+import { getDonorStatsFromFirestore, searchDonorsInFirestore, type Donor } from './lib/repository';
+import { translations, type Language } from './lib/translations';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 
-// DATA REPO WRAPPERS & UTILS
+// UTILS
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
+// FIRESTORE ERROR HANDLING
+enum OperationType {
+  CREATE = 'create',
+  UPDATE = 'update',
+  DELETE = 'delete',
+  LIST = 'list',
+  GET = 'get',
+  WRITE = 'write',
+}
+
+interface FirestoreErrorInfo {
+  error: string;
+  operationType: OperationType;
+  path: string | null;
+  authInfo: {
+    userId?: string | null;
+    email?: string | null;
+    emailVerified?: boolean | null;
+    isAnonymous?: boolean | null;
+  }
+}
+
+function handleFirestoreError(error: unknown, operationType: OperationType, path: string | null) {
+  const errInfo: FirestoreErrorInfo = {
+    error: error instanceof Error ? error.message : String(error),
+    authInfo: {
+      userId: auth.currentUser?.uid,
+      email: auth.currentUser?.email,
+      emailVerified: auth.currentUser?.emailVerified,
+      isAnonymous: auth.currentUser?.isAnonymous,
+    },
+    operationType,
+    path
+  };
+  console.error('Firestore Error: ', JSON.stringify(errInfo));
+  throw new Error(JSON.stringify(errInfo));
+}
+
 // SHARED UI COMPONENTS
-const Button = ({ children, onClick, variant = 'primary', className, disabled, type = 'button' }: any) => {
+const Button = ({ children, onClick, variant = 'primary', className, disabled, type = 'button', size = 'default' }: any) => {
   const variants: any = {
     primary: "bg-[#C62828] text-white hover:bg-[#B71C1C] shadow-lg shadow-red-100",
     secondary: "bg-white text-[#1A237E] border border-slate-200 hover:bg-slate-50 shadow-sm",
@@ -43,14 +86,22 @@ const Button = ({ children, onClick, variant = 'primary', className, disabled, t
     success: "bg-[#2E7D32] text-white hover:bg-[#1B5E20] shadow-lg shadow-green-100",
     navy: "bg-[#1A237E] text-white hover:bg-[#0D147A] shadow-lg shadow-blue-100"
   };
+  
+  const sizes: any = {
+    default: "py-4 px-6",
+    sm: "py-2 px-4 text-sm",
+    xs: "py-1.5 px-3 text-[10px]"
+  };
+
   return (
     <button 
       type={type}
       disabled={disabled}
       onClick={onClick}
       className={cn(
-        "w-full py-4 px-6 rounded-2xl font-bold transition-all active:scale-95 disabled:opacity-50 flex items-center justify-center gap-2",
+        "w-full rounded-2xl font-bold transition-all active:scale-95 disabled:opacity-50 flex items-center justify-center gap-2",
         variants[variant],
+        sizes[size],
         className
       )}
     >
@@ -65,74 +116,153 @@ const Card = ({ children, className }: any) => (
   </div>
 );
 
-const Header = () => (
-  <header className="flex items-center justify-between px-6 py-4 bg-white border-b border-slate-200 mb-6 lg:rounded-3xl lg:mt-4 lg:mx-4">
-    <div className="flex items-center gap-3">
-      <div className="w-10 h-10 bg-[#C62828] rounded-xl flex items-center justify-center text-white shadow-lg">
-        <Droplet size={24} fill="white" />
+const Header = ({ lang, onToggleLang, user }: { lang: Language, onToggleLang: () => void, user: FirebaseUser | null }) => {
+  const t = translations[lang];
+  return (
+    <header className="flex items-center justify-between px-6 py-4 bg-white border-b border-slate-200 mb-6 lg:rounded-3xl lg:mt-4 lg:mx-4">
+      <div className="flex items-center gap-3">
+        <div className="w-10 h-10 bg-[#C62828] rounded-xl flex items-center justify-center text-white shadow-lg">
+          <Droplet size={24} fill="white" />
+        </div>
+        <div>
+          <h1 className="text-xl font-bold tracking-tight text-[#1A237E] leading-tight">{t.appName}</h1>
+          <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest leading-none">{t.ruralNetwork}</p>
+        </div>
       </div>
-      <div>
-        <h1 className="text-xl font-bold tracking-tight text-[#1A237E]">Rakta-Vahini</h1>
-        <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Rural Blood Network</p>
+      <div className="flex items-center gap-3">
+        <button 
+          onClick={onToggleLang}
+          className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 rounded-full text-[10px] font-bold text-slate-600 hover:bg-slate-200 transition-all border border-slate-200"
+        >
+          <Languages size={14} />
+          {lang === 'en' ? 'ಕನ್ನಡ' : 'English'}
+        </button>
+        {user && (
+          <button 
+            onClick={() => signOut(auth)}
+            className="p-2 text-slate-400 hover:text-red-500 transition-colors"
+            title="Logout"
+          >
+            <LogOut size={18} />
+          </button>
+        )}
       </div>
-    </div>
-    <div className="flex items-center gap-2">
-      <div className="flex flex-col items-end">
-        <span className="text-[10px] font-bold text-[#2E7D32]">● SYSTEM ONLINE</span>
-        <span className="text-[10px] text-slate-400">Dharwad, KA</span>
-      </div>
-    </div>
-  </header>
-);
+    </header>
+  );
+};
 
 // TYPES
 type View = 'SPLASH' | 'HOME' | 'REGISTER' | 'DONOR_DASH' | 'SEARCH' | 'RESULTS' | 'HISTORY' | 'AI_HELP';
 
 export default function App() {
   const [view, setView] = useState<View>('SPLASH');
-  const [activeDonorId, setActiveDonorId] = useState<number | null>(null);
+  const [lang, setLang] = useState<Language>('en');
+  const [user, setUser] = useState<FirebaseUser | null>(null);
+  const [isAuthLoading, setIsAuthLoading] = useState(true);
+  
+  const [activeDonor, setActiveDonor] = useState<Donor | null>(null);
   const [searchParams, setSearchParams] = useState({ bloodGroup: '', location: '' });
   const [searchResults, setSearchResults] = useState<Donor[]>([]);
   const [isSearching, setIsSearching] = useState(false);
+  const [stats, setStats] = useState({ total: 0, eligible: 0, ready: 0 });
 
-  // DATA
-  const activeDonor = useLiveQuery(
-    () => activeDonorId ? db.donors.get(activeDonorId) : undefined,
-    [activeDonorId]
-  );
-  
-  const stats = useLiveQuery(getDonorStats, []);
+  const t = translations[lang];
+
+  // AUTH OBSERVER
+  useEffect(() => {
+    return onAuthStateChanged(auth, (u) => {
+      setUser(u);
+      setIsAuthLoading(false);
+      if (!u) {
+        setActiveDonor(null);
+        setView('SPLASH');
+      } else {
+        // Initial fetch logic will happen in separate useEffects
+      }
+    });
+  }, []);
+
+  // DATA LISTENER: ACTIVE DONOR
+  useEffect(() => {
+    if (!user) return;
+    const unsub = onSnapshot(doc(firestore, 'donors', user.uid), (doc) => {
+      if (doc.exists()) {
+        setActiveDonor({ id: doc.id, ...doc.data() } as Donor);
+      } else {
+        setActiveDonor(null);
+      }
+    }, (err) => handleFirestoreError(err, OperationType.GET, 'donors/' + user.uid));
+    return unsub;
+  }, [user]);
+
+  // DATA LISTENER: STATS
+  useEffect(() => {
+    const unsub = onSnapshot(collection(firestore, 'donors'), (snapshot) => {
+      const all = snapshot.docs.map(doc => doc.data() as Donor);
+      setStats({
+        total: all.length,
+        eligible: all.filter(d => checkEligibility(d.lastDonationDate).isEligible).length,
+        ready: all.filter(d => d.isReadyToDonate).length
+      });
+    });
+    return unsub;
+  }, []);
 
   // INIT
   useEffect(() => {
     const timer = setTimeout(() => {
-      // Check if user already registered (for demo, we'll just go to home)
-      setView('HOME');
+      if (!isAuthLoading) {
+        setView('HOME');
+      }
     }, 2500);
     return () => clearTimeout(timer);
-  }, []);
+  }, [isAuthLoading]);
 
   // HANDLERS
-  const handleRegister = async (donor: Omit<Donor, 'id' | 'registeredAt'>) => {
-    const id = await db.donors.add({
-      ...donor,
-      registeredAt: Date.now()
-    });
-    setActiveDonorId(id);
-    setView('DONOR_DASH');
+  const toggleLang = () => setLang(prev => prev === 'en' ? 'kn' : 'en');
+
+  const handleRegister = async (donorData: Omit<Donor, 'id' | 'registeredAt' | 'userId'>) => {
+    if (!user) return;
+    try {
+      const donor: Donor = {
+        ...donorData,
+        userId: user.uid,
+        registeredAt: Date.now()
+      };
+      await setDoc(doc(firestore, 'donors', user.uid), donor);
+      setView('DONOR_DASH');
+    } catch (err) {
+      handleFirestoreError(err, OperationType.WRITE, 'donors/' + user.uid);
+    }
   };
 
   const handleSearch = async () => {
     setIsSearching(true);
-    const results = await searchDonors(searchParams.bloodGroup, searchParams.location);
-    setSearchResults(results);
-    setIsSearching(false);
-    setView('RESULTS');
+    try {
+      const results = await searchDonorsInFirestore(searchParams.bloodGroup, searchParams.location);
+      setSearchResults(results);
+      setView('RESULTS');
+    } catch (err) {
+      handleFirestoreError(err, OperationType.LIST, 'donors');
+    } finally {
+      setIsSearching(false);
+    }
   };
 
-  const handleAddDonation = async (donorId: number, donation: Omit<Donation, 'id' | 'donorId'>) => {
-    await db.donations.add({ ...donation, donorId });
-    await db.donors.update(donorId, { lastDonationDate: donation.date });
+  const handleAddDonation = async (donorId: string, donation: any) => {
+    if (!user) return;
+    try {
+      await addDoc(collection(firestore, 'donations'), {
+        ...donation,
+        donorId,
+        userId: user.uid
+      });
+      await updateDoc(doc(firestore, 'donors', donorId), { 
+        lastDonationDate: donation.date 
+      });
+    } catch (err) {
+      handleFirestoreError(err, OperationType.WRITE, 'donations');
+    }
   };
 
   return (
@@ -143,23 +273,36 @@ export default function App() {
         {view === 'SPLASH' && (
           <motion.div 
             key="splash"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="fixed inset-0 bg-[#C62828] flex flex-col items-center justify-center text-white p-8"
           >
-            <motion.div 
-              initial={{ scale: 0.8, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              transition={{ delay: 0.5 }}
-              className="mb-8"
-            >
-              <Droplet size={120} fill="white" className="text-white" />
-            </motion.div>
-            <h1 className="text-4xl font-bold mb-2 tracking-tight">Rakta-Vahini</h1>
-            <p className="text-red-100 text-center text-lg max-w-xs font-medium">
-              Connecting the right donor to the right patient.
-            </p>
+            <div className="fixed inset-0 bg-[#C62828] flex flex-col items-center justify-center text-white p-8 overflow-hidden">
+               <motion.div 
+                initial={{ scale: 0.8, opacity: 0 }}
+                animate={{ scale: 1, opacity: 1 }}
+                className="mb-8 relative"
+              >
+                <div className="absolute inset-0 bg-white/20 blur-3xl rounded-full scale-150 animate-pulse" />
+                <Droplet size={120} fill="white" className="text-white relative z-10" />
+              </motion.div>
+              <h1 className="text-4xl font-black mb-2 tracking-tighter uppercase">{t.appName}</h1>
+              <p className="text-red-100 text-center text-sm max-w-xs font-bold uppercase tracking-widest opacity-80 mb-12">
+                {t.tagline}
+              </p>
+
+              {!isAuthLoading && !user && (
+                <motion.div 
+                  initial={{ y: 20, opacity: 0 }}
+                  animate={{ y: 0, opacity: 1 }}
+                  transition={{ delay: 0.5 }}
+                >
+                  <Button variant="secondary" onClick={signInWithGoogle} className="gap-3 px-8 w-auto">
+                    <LogIn size={20} />
+                    {t.signInGoogle}
+                  </Button>
+                </motion.div>
+              )}
+
+              {isAuthLoading && <div className="text-white/40 font-bold text-[10px] uppercase tracking-widest mt-8">VERIFYING CONNECTION...</div>}
+            </div>
           </motion.div>
         )}
 
@@ -171,7 +314,7 @@ export default function App() {
             animate={{ opacity: 1, y: 0 }}
             className="flex-1 flex flex-col max-w-4xl mx-auto w-full p-4 lg:p-6"
           >
-            <Header />
+            <Header lang={lang} onToggleLang={toggleLang} user={user} />
             
             <main className="grid grid-cols-12 gap-4 flex-1">
               {/* Emergency Banner */}
@@ -185,18 +328,18 @@ export default function App() {
                     <AlertCircle className="text-white" size={24} />
                   </div>
                   <div>
-                    <p className="text-white/60 text-[10px] font-bold uppercase tracking-widest">Active Requests</p>
-                    <h2 className="text-white font-bold text-base sm:text-lg leading-tight">Emergency blood requirement at Civil Hospital Hubli</h2>
+                    <p className="text-white/60 text-[10px] font-bold uppercase tracking-widest">{t.activeRequests}</p>
+                    <h2 className="text-white font-bold text-base sm:text-lg leading-tight">{t.emergencyHubli}</h2>
                   </div>
                 </div>
-                <Button variant="secondary" className="w-auto py-2 px-6 h-auto text-xs bg-white text-[#C62828] border-none shadow-none">VIEW ALL</Button>
+                <Button variant="secondary" size="sm" className="w-auto px-6 bg-white text-[#C62828] border-none shadow-none">{t.viewAll}</Button>
               </motion.div>
 
               {/* Find Donor Card */}
               <Card className="col-span-12 md:col-span-6 lg:col-span-5 flex flex-col justify-between p-8 border-slate-200">
                 <div>
-                  <h3 className="text-2xl font-bold text-[#1A237E] mb-2">Find a Donor</h3>
-                  <p className="text-slate-500 text-sm leading-relaxed mb-6">Search for eligible matches in your local community.</p>
+                  <h3 className="text-2xl font-bold text-[#1A237E] mb-2">{t.findDonor}</h3>
+                  <p className="text-slate-500 text-sm leading-relaxed mb-6">{t.searchDesc}</p>
                   
                   <div className="grid grid-cols-4 gap-2 mb-8">
                     {BLOOD_GROUPS.slice(0, 4).map(bg => (
@@ -206,16 +349,16 @@ export default function App() {
                 </div>
                 <Button variant="navy" onClick={() => setView('SEARCH')} className="gap-2">
                   <Search size={20} />
-                  Search Database
+                  {t.searchDatabase}
                 </Button>
               </Card>
 
               {/* Status Card */}
               <Card className="col-span-12 md:col-span-6 lg:col-span-7 flex flex-col">
                 <div className="flex justify-between items-start mb-4">
-                  <h3 className="text-xl font-bold text-[#1A237E]">Donor Status</h3>
+                  <h3 className="text-xl font-bold text-[#1A237E]">{t.donorStatus}</h3>
                   <span className="px-3 py-1 bg-green-50 text-[#2E7D32] text-[10px] font-bold rounded-full border border-green-100">
-                    {activeDonorId ? "ACTIVE MEMBER" : "GUEST"}
+                    {activeDonor ? "ACTIVE MEMBER" : "GUEST"}
                   </span>
                 </div>
 
@@ -225,12 +368,13 @@ export default function App() {
                       <div className="w-24 h-24 rounded-full border-4 border-[#2E7D32] border-t-transparent flex items-center justify-center mb-4 relative">
                         <span className="text-4xl font-black text-[#C62828]">{activeDonor.bloodGroup}</span>
                       </div>
-                      <p className="text-2xl font-bold text-slate-800">You are Eligible</p>
+                      <p className="text-2xl font-bold text-slate-800">{t.eligible}</p>
                       <p className="text-slate-400 text-sm mt-1">
                         {activeDonor.lastDonationDate 
-                          ? `Last donated ${checkEligibility(activeDonor.lastDonationDate).daysRemaining === 0 ? 'over 90 days ago' : 'recently'}` 
-                          : 'No donations recorded'}
+                          ? `${t.lastDonated} ${checkEligibility(activeDonor.lastDonationDate).daysRemaining === 0 ? 'over 90 days ago' : 'recently'}` 
+                          : t.noDonations}
                       </p>
+                      <Button variant="success" size="sm" onClick={() => setView('DONOR_DASH')} className="mt-4 w-auto px-6">{t.dashboard}</Button>
                     </>
                   ) : (
                     <>
@@ -239,7 +383,7 @@ export default function App() {
                       </div>
                       <p className="text-xl font-bold text-slate-800">Become a Donor</p>
                       <p className="text-slate-400 text-sm mt-1 max-w-[200px]">Join our network to help save lives in rural areas.</p>
-                      <Button variant="secondary" onClick={() => setView('REGISTER')} className="mt-4 py-2 px-6 w-auto h-auto text-xs">REGISTER NOW</Button>
+                      <Button variant="secondary" size="sm" onClick={() => setView('REGISTER')} className="mt-4 w-auto px-6 uppercase">{t.completeRegistration}</Button>
                     </>
                   )}
                 </div>
@@ -250,7 +394,7 @@ export default function App() {
                     <span className="text-[#2E7D32]">90 Days Rule</span>
                   </div>
                   <div className="w-full h-2 bg-slate-100 rounded-full overflow-hidden">
-                    <div className="w-full h-full bg-[#2E7D32] rounded-full" />
+                    <div className={cn("h-full bg-[#2E7D32] rounded-full", activeDonor ? "w-full" : "w-0")} />
                   </div>
                 </div>
               </Card>
@@ -259,16 +403,16 @@ export default function App() {
               <div className="col-span-12 lg:col-span-4 space-y-4">
                 <div className="bg-[#1A237E] rounded-3xl p-6 text-white shadow-lg overflow-hidden relative">
                   <Droplet className="absolute -right-4 -bottom-4 text-white/5" size={120} />
-                  <p className="text-[10px] font-bold text-white/50 uppercase tracking-widest mb-4">Impact Stats</p>
+                  <p className="text-[10px] font-bold text-white/50 uppercase tracking-widest mb-4">{t.impactStats}</p>
                   <div className="space-y-4">
                     <div>
-                      <p className="text-3xl font-bold">{stats?.total || 0}</p>
-                      <p className="text-xs text-white/60">Registered Local Donors</p>
+                      <p className="text-3xl font-bold">{stats.total}</p>
+                      <p className="text-xs text-white/60">{t.registeredDonors}</p>
                     </div>
                     <div className="h-px bg-white/10" />
                     <div>
-                      <p className="text-3xl font-bold">{stats?.ready || 0}</p>
-                      <p className="text-xs text-white/60">Donors Ready for Emergency</p>
+                      <p className="text-3xl font-bold">{stats.ready}</p>
+                      <p className="text-xs text-white/60">{t.readyForEmergency}</p>
                     </div>
                   </div>
                 </div>
@@ -280,20 +424,20 @@ export default function App() {
                     <div className="bg-[#2E7D32] p-1.5 rounded-lg">
                       <span className="text-white text-[10px] font-bold">AI</span>
                     </div>
-                    <p className="text-[10px] font-bold text-[#2E7D32] uppercase tracking-wider">Gemini Guidance</p>
+                    <p className="text-[10px] font-bold text-[#2E7D32] uppercase tracking-wider">{t.geminiGuidance}</p>
                   </div>
                   <p className="text-[#1B5E20] font-bold text-sm leading-snug">
                     "Pre-donation hydration is key. Drink at least 500ml of local fluids like tender coconut or buttermilk."
                   </p>
                 </div>
-                <Button variant="success" onClick={() => setView('AI_HELP')} className="w-auto h-auto py-3 px-6 text-xs whitespace-nowrap">GET MORE TIPS</Button>
+                <Button variant="success" size="sm" onClick={() => setView('AI_HELP')} className="w-auto px-6 whitespace-nowrap">{t.getMoreTips}</Button>
               </div>
 
               {/* Recent Activity placeholder to match Bento look */}
               <Card className="col-span-12 p-6 flex flex-col sm:flex-row items-center justify-between gap-6 overflow-hidden">
                 <div className="flex flex-col gap-1">
-                  <h4 className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Network Activity</h4>
-                  <p className="text-sm font-bold text-slate-700">Recent volunteer contributions in Dharwad</p>
+                  <h4 className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{t.networkActivity}</h4>
+                  <p className="text-sm font-bold text-slate-700">{t.recentVolunteer}</p>
                 </div>
                 <div className="flex -space-x-3 overflow-hidden">
                   {[1,2,3,4].map(i => (
@@ -318,12 +462,12 @@ export default function App() {
             animate={{ opacity: 1, x: 0 }}
             className="flex-1 flex flex-col max-w-md mx-auto w-full p-4"
           >
-            <Header />
+            <Header lang={lang} onToggleLang={toggleLang} user={user} />
             <div className="flex-1 overflow-y-auto px-2 pb-24">
               <button onClick={() => setView('HOME')} className="mb-6 p-2 -ml-2 text-slate-400 flex items-center gap-2 font-bold text-sm">
                 <ChevronLeft size={20} /> Back
               </button>
-              <h1 className="text-2xl font-bold mb-8 text-[#1A237E]">Donor Registration</h1>
+              <h1 className="text-2xl font-bold mb-8 text-[#1A237E]">{t.completeRegistration}</h1>
               
               <form className="space-y-6" onSubmit={(e) => {
                 e.preventDefault();
@@ -339,42 +483,44 @@ export default function App() {
                 });
               }}>
                 <div className="space-y-2">
-                  <label className="text-xs font-bold text-slate-400 uppercase tracking-widest px-1">Full Name</label>
+                  <label className="text-xs font-bold text-slate-400 uppercase tracking-widest px-1">{t.name}</label>
                   <input name="name" required className="w-full p-4 rounded-2xl bg-white border border-slate-200 focus:ring-2 focus:ring-red-500 outline-none transition-all" placeholder="Enter your name" />
                 </div>
 
                 <div className="space-y-2">
-                  <label className="text-xs font-bold text-slate-400 uppercase tracking-widest px-1">Phone Number</label>
+                  <label className="text-xs font-bold text-slate-400 uppercase tracking-widest px-1">{t.phone}</label>
                   <input name="phone" type="tel" required className="w-full p-4 rounded-2xl bg-white border border-slate-200 focus:ring-2 focus:ring-red-500 outline-none transition-all" placeholder="+91 XXXX XXX XXX" />
                 </div>
 
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-2">
-                    <label className="text-xs font-bold text-slate-400 uppercase tracking-widest px-1">Blood Group</label>
-                    <select name="bloodGroup" required className="w-full p-4 rounded-2xl bg-white border border-slate-200 focus:ring-2 focus:ring-red-500 outline-none appearance-none">
-                      {BLOOD_GROUPS.map(bg => <option key={bg} value={bg}>{bg}</option>)}
-                    </select>
+                    <label className="text-xs font-bold text-slate-400 uppercase tracking-widest px-1">{t.bloodGroup}</label>
+                    <div className="relative">
+                      <select name="bloodGroup" required className="w-full p-4 rounded-2xl bg-white border border-slate-200 focus:ring-2 focus:ring-red-500 outline-none appearance-none">
+                        {BLOOD_GROUPS.map(bg => <option key={bg} value={bg}>{bg}</option>)}
+                      </select>
+                    </div>
                   </div>
                   <div className="space-y-2">
-                    <label className="text-xs font-bold text-slate-400 uppercase tracking-widest px-1">Last Donation</label>
+                    <label className="text-xs font-bold text-slate-400 uppercase tracking-widest px-1">{t.lastDonationDate}</label>
                     <input name="lastDate" type="date" className="w-full p-4 rounded-2xl bg-white border border-slate-200 focus:ring-2 focus:ring-red-500 outline-none" />
                   </div>
                 </div>
 
                 <div className="space-y-2">
-                  <label className="text-xs font-bold text-slate-400 uppercase tracking-widest px-1">Location (District/Town)</label>
+                  <label className="text-xs font-bold text-slate-400 uppercase tracking-widest px-1">{t.location}</label>
                   <input name="location" required className="w-full p-4 rounded-2xl bg-white border border-slate-200 focus:ring-2 focus:ring-red-500 outline-none" placeholder="e.g. Dharwad" />
                 </div>
 
                 <div className="space-y-2">
-                  <label className="text-xs font-bold text-slate-400 uppercase tracking-widest px-1">Village/Area</label>
+                  <label className="text-xs font-bold text-slate-400 uppercase tracking-widest px-1">{t.village}</label>
                   <input name="village" required className="w-full p-4 rounded-2xl bg-white border border-slate-200 focus:ring-2 focus:ring-red-500 outline-none" placeholder="e.g. Hebballi" />
                 </div>
 
                 <div className="pt-4">
-                  <Button type="submit" variant="navy">Complete Registration</Button>
+                  <Button type="submit" variant="navy">{t.completeRegistration}</Button>
                   <p className="text-center text-[10px] text-slate-400 mt-4 leading-relaxed font-medium uppercase tracking-wider">
-                    Privacy Focused • Rural Emergency Network
+                    {t.privacyNote}
                   </p>
                 </div>
               </form>
@@ -390,10 +536,10 @@ export default function App() {
             animate={{ opacity: 1 }}
             className="flex-1 flex flex-col max-w-md mx-auto w-full p-4"
           >
-            <Header />
+            <Header lang={lang} onToggleLang={toggleLang} user={user} />
             <div className="flex-1 overflow-y-auto px-2 pb-24">
               <button onClick={() => setView('HOME')} className="mb-6 p-2 -ml-2 text-slate-400 flex items-center gap-2 font-bold text-sm">
-                <ChevronLeft size={20} /> Dashboard
+                <ChevronLeft size={20} /> {t.dashboard}
               </button>
               
               <header className="flex items-center justify-between mb-8">
@@ -420,7 +566,7 @@ export default function App() {
                       <div className="flex items-center gap-2">
                         {isEligible ? <CheckCircle className="text-[#2E7D32]" /> : <Clock className="text-[#C62828]" />}
                         <span className={cn("font-bold text-lg", isEligible ? "text-[#2E7D32]" : "text-[#C62828]")}>
-                          {isEligible ? "Eligible to Donate" : "Wait Period Active"}
+                          {isEligible ? t.eligible : t.notEligible}
                         </span>
                       </div>
                     </div>
@@ -449,12 +595,12 @@ export default function App() {
                       <AlertCircle size={20} />
                     </div>
                     <div>
-                      <p className="font-bold text-[#1A237E]">Ready to Donate</p>
+                      <p className="font-bold text-[#1A237E]">{t.readyToDonate}</p>
                       <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Visible in Emergency</p>
                     </div>
                   </div>
                   <button 
-                    onClick={() => db.donors.update(activeDonor.id!, { isReadyToDonate: !activeDonor.isReadyToDonate })}
+                    onClick={() => updateDoc(doc(firestore, 'donors', user!.uid), { isReadyToDonate: !activeDonor.isReadyToDonate })}
                     className={cn(
                       "w-14 h-8 rounded-full transition-all relative p-1",
                       activeDonor.isReadyToDonate ? "bg-[#2E7D32]" : "bg-slate-300"
@@ -469,7 +615,7 @@ export default function App() {
 
                 <Button variant="secondary" className="gap-2" onClick={() => setView('HISTORY')}>
                   <History size={18} />
-                  View Donation History
+                  {t.history}
                 </Button>
               </div>
 
@@ -480,7 +626,7 @@ export default function App() {
                   </div>
                   <h3 className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Personal Health Tips</h3>
                 </div>
-                <AIHealthTips />
+                <AIHealthTips lang={lang} />
               </section>
             </div>
           </motion.div>
@@ -494,16 +640,16 @@ export default function App() {
             animate={{ opacity: 1, y: 0 }}
             className="flex-1 flex flex-col max-w-md mx-auto w-full p-4"
           >
-            <Header />
+            <Header lang={lang} onToggleLang={toggleLang} user={user} />
             <div className="flex-1 overflow-y-auto px-2 pb-24">
               <button onClick={() => setView('HOME')} className="mb-6 p-2 -ml-2 text-slate-400 flex items-center gap-2 font-bold text-sm">
                 <ChevronLeft size={20} /> Back
               </button>
-              <h1 className="text-2xl font-bold mb-8 text-[#1A237E]">Emergency Search</h1>
+              <h1 className="text-2xl font-bold mb-8 text-[#1A237E]">{t.findDonor}</h1>
 
               <div className="space-y-8">
                 <div className="space-y-3">
-                  <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest px-1">Select Blood Group</label>
+                  <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest px-1">{t.bloodGroup}</label>
                   <div className="grid grid-cols-4 gap-2">
                     {BLOOD_GROUPS.map(bg => (
                       <button 
@@ -523,7 +669,7 @@ export default function App() {
                 </div>
 
                 <div className="space-y-3">
-                  <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest px-1">Location Filter (Optional)</label>
+                  <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest px-1">{t.location}</label>
                   <input 
                     value={searchParams.location}
                     onChange={(e) => setSearchParams({ ...searchParams, location: e.target.value })}
@@ -532,15 +678,15 @@ export default function App() {
                   />
                 </div>
 
-                <Button onClick={handleSearch} disabled={!searchParams.bloodGroup} variant="navy">
+                <Button onClick={handleSearch} disabled={!searchParams.bloodGroup || isSearching} variant="navy">
                   <Search size={20} />
-                  Find Eligible Donors
+                  {isSearching ? '...' : t.searchEligible}
                 </Button>
 
                 <Card className="bg-red-50 border-red-100 flex gap-4 p-5">
                   <AlertCircle className="text-[#C62828] flex-shrink-0" />
                   <p className="text-xs text-red-900 font-medium leading-relaxed">
-                    Only <strong>Eligible</strong> and <strong>Ready</strong> donors are shown. Donors are ineligible for 90 days after each donation.
+                    {t.onlyReadyShown}
                   </p>
                 </Card>
               </div>
@@ -556,7 +702,7 @@ export default function App() {
             animate={{ opacity: 1 }}
             className="flex-1 flex flex-col max-w-md mx-auto w-full p-4"
           >
-            <Header />
+            <Header lang={lang} onToggleLang={toggleLang} user={user} />
             <div className="flex-1 overflow-y-auto px-2 pb-24">
               <div className="flex items-center gap-4 mb-6">
                 <button onClick={() => setView('SEARCH')} className="p-2 -ml-2 text-slate-400 font-bold hover:text-red-600 transition-colors flex items-center gap-1 text-sm">
@@ -566,7 +712,7 @@ export default function App() {
               <div className="mb-8">
                 <h1 className="text-2xl font-bold flex items-center gap-2 text-[#1A237E]">
                   <Droplet className="text-[#C62828]" fill="currentColor" />
-                  {searchParams.bloodGroup} Eligible Donors
+                  {searchParams.bloodGroup} {t.potentialSaves}
                 </h1>
                 <p className="text-slate-400 font-bold text-[10px] uppercase tracking-widest px-1 mt-1">{searchParams.location || 'All areas'}</p>
               </div>
@@ -578,7 +724,7 @@ export default function App() {
                   </div>
                   <p className="text-slate-500 font-bold">No eligible donors found.</p>
                   <p className="text-slate-400 text-xs mt-1 leading-relaxed">Consider expanding your location search or wait for updates.</p>
-                  <Button variant="secondary" onClick={() => setView('SEARCH')} className="mt-8 py-3 w-auto mx-auto px-6 h-auto text-xs">Try again</Button>
+                  <Button variant="secondary" size="sm" onClick={() => setView('SEARCH')} className="mt-8 w-auto mx-auto px-6">Try again</Button>
                 </div>
               ) : (
                 <div className="space-y-4">
@@ -609,7 +755,7 @@ export default function App() {
                   </div>
                   <h3 className="text-[10px] font-bold text-[#1A237E] uppercase tracking-widest">Broadcast Tool</h3>
                 </div>
-                <AIBroadcastGenerator bloodGroup={searchParams.bloodGroup} area={searchParams.location || 'Your Area'} />
+                <AIBroadcastGenerator bloodGroup={searchParams.bloodGroup} area={searchParams.location || 'Your Area'} t={t} />
               </div>
             </div>
           </motion.div>
@@ -623,14 +769,18 @@ export default function App() {
             animate={{ opacity: 1, x: 0 }}
             className="flex-1 flex flex-col max-w-md mx-auto w-full p-4"
           >
-            <Header />
+            <Header lang={lang} onToggleLang={toggleLang} user={user} />
             <div className="flex-1 overflow-y-auto px-2 pb-24">
               <button onClick={() => setView('DONOR_DASH')} className="mb-6 p-2 -ml-2 text-slate-400 flex items-center gap-2 font-bold text-sm">
                 <ChevronLeft size={20} /> Dashboard
               </button>
-              <h1 className="text-2xl font-bold mb-8 text-[#1A237E]">Donation Records</h1>
+              <h1 className="text-2xl font-bold mb-8 text-[#1A237E]">{t.historyRecords}</h1>
 
-              <DonationList donorId={activeDonor.id!} onAddDonation={handleAddDonation} />
+              <DonationList 
+                donorId={activeDonor.userId} 
+                onAddDonation={handleAddDonation} 
+                lang={lang}
+              />
             </div>
           </motion.div>
         )}
@@ -643,13 +793,13 @@ export default function App() {
             animate={{ opacity: 1, y: 0 }}
             className="flex-1 flex flex-col max-w-md mx-auto w-full p-4"
           >
-            <Header />
+            <Header lang={lang} onToggleLang={toggleLang} user={user} />
             <div className="flex-1 overflow-y-auto px-2 pb-24">
               <button onClick={() => setView('HOME')} className="mb-6 p-2 -ml-2 text-slate-400 flex items-center gap-2 font-bold text-sm">
                 <ChevronLeft size={20} /> Dashboard
               </button>
               <h1 className="text-2xl font-bold mb-6 text-[#1A237E]">AI Assistant</h1>
-              <AIAssistant />
+              <AIAssistant lang={lang} />
             </div>
           </motion.div>
         )}
@@ -665,24 +815,24 @@ export default function App() {
               className={cn("text-sm font-bold transition-all flex items-center gap-2", view === 'HOME' ? "text-[#C62828]" : "text-slate-400 hover:text-slate-600")}
             >
               <div className={cn("w-2 h-2 rounded-full", view === 'HOME' ? "bg-[#C62828]" : "bg-transparent")} />
-              Dashboard
+              {t.dashboard}
             </button>
             <button 
-              onClick={() => activeDonorId && setView('HISTORY')} 
+              onClick={() => activeDonor && setView('HISTORY')} 
               className={cn("text-sm font-bold transition-all", view === 'HISTORY' ? "text-[#C62828]" : "text-slate-400 hover:text-slate-600 disabled:opacity-30")}
-              disabled={!activeDonorId}
+              disabled={!activeDonor}
             >
-              History
+              {t.history}
             </button>
             <button 
               onClick={() => setView('AI_HELP')} 
               className={cn("text-sm font-bold transition-all", view === 'AI_HELP' ? "text-[#C62828]" : "text-slate-400 hover:text-slate-600")}
             >
-              Privacy
+              {t.privacy}
             </button>
           </div>
           <div className="px-5 py-2 bg-slate-900 text-white rounded-full text-[10px] font-black tracking-widest hover:bg-black transition-colors cursor-pointer">
-            EMERGENCY SOS: 112
+            {t.emergencySos}
           </div>
         </footer>
       )}
@@ -692,18 +842,30 @@ export default function App() {
 
 // SUB-COMPONENTS (AI FEATURES)
 
-function DonationList({ donorId, onAddDonation }: { donorId: number, onAddDonation: any }) {
-  const donations = useLiveQuery(() => db.donations.where('donorId').equals(donorId).reverse().sortBy('date'), [donorId]);
+function DonationList({ donorId, onAddDonation, lang }: { donorId: string, onAddDonation: any, lang: Language }) {
+  const [donations, setDonations] = useState<any[]>([]);
   const [showAdd, setShowAdd] = useState(false);
+  const t = translations[lang];
+
+  useEffect(() => {
+    const q = query(
+      collection(firestore, 'donations'), 
+      where('donorId', '==', donorId),
+      orderBy('date', 'desc')
+    );
+    return onSnapshot(q, (snapshot) => {
+      setDonations(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    }, (err) => handleFirestoreError(err, OperationType.LIST, 'donations'));
+  }, [donorId]);
 
   return (
     <div className="space-y-6">
       <Button variant="secondary" onClick={() => setShowAdd(!showAdd)} className="border-dashed gap-2">
-        <Plus size={20} /> Record New Donation
+        <Plus size={20} /> {t.recordNew}
       </Button>
 
       {showAdd && (
-        <Card className="bg-slate-50 animate-in fade-in slide-in-from-top-2">
+        <Card className="bg-slate-50 animate-in fade-in slide-in-from-top-2 p-5">
           <form className="space-y-4" onSubmit={(e) => {
             e.preventDefault();
             const fd = new FormData(e.currentTarget);
@@ -715,28 +877,28 @@ function DonationList({ donorId, onAddDonation }: { donorId: number, onAddDonati
             setShowAdd(false);
           }}>
             <input name="date" type="date" required className="w-full p-3 rounded-xl border border-slate-200 outline-none" />
-            <input name="hospital" placeholder="Hospital Name" required className="w-full p-3 rounded-xl border border-slate-200 outline-none" />
-            <input name="units" type="number" placeholder="Units (e.g. 1)" required className="w-full p-3 rounded-xl border border-slate-200 outline-none" />
-            <Button type="submit" size="sm">Save Donation</Button>
+            <input name="hospital" placeholder={t.hospitalName} required className="w-full p-3 rounded-xl border border-slate-200 outline-none" />
+            <input name="units" type="number" placeholder={t.units} required className="w-full p-3 rounded-xl border border-slate-200 outline-none" />
+            <Button type="submit" size="sm" variant="navy">{t.saveDonation}</Button>
           </form>
         </Card>
       )}
 
-      {donations?.length === 0 ? (
+      {donations.length === 0 ? (
         <div className="text-center py-10 opacity-40">
           <History size={48} className="mx-auto mb-4" />
-          <p>No donations recorded yet.</p>
+          <p>{t.noDonations}</p>
         </div>
       ) : (
         <div className="space-y-4">
-          {donations?.map(d => (
+          {donations.map(d => (
             <div key={d.id} className="flex items-center gap-4 p-4 bg-white rounded-2xl border border-slate-100 shadow-sm transition-all hover:shadow-md">
               <div className="h-12 w-12 bg-red-50 rounded-xl flex items-center justify-center text-red-600 font-bold shrink-0">
                 {d.units}U
               </div>
               <div className="flex-1 min-w-0">
-                <h4 className="font-bold truncate">{d.hospital}</h4>
-                <p className="text-xs text-slate-500 uppercase font-bold tracking-wider">{new Date(d.date).toLocaleDateString()}</p>
+                <h4 className="font-bold truncate text-[#1A237E]">{d.hospital}</h4>
+                <p className="text-[10px] text-slate-400 uppercase font-bold tracking-wider">{new Date(d.date).toLocaleDateString()}</p>
               </div>
               <CheckCircle size={20} className="text-green-500" />
             </div>
@@ -747,30 +909,34 @@ function DonationList({ donorId, onAddDonation }: { donorId: number, onAddDonati
   );
 }
 
-function AIHealthTips() {
+function AIHealthTips({ lang }: { lang: Language }) {
   const [tips, setTips] = useState<string>('');
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    fetch('/api/ai/guidance', { method: 'POST' })
+    fetch('/api/ai/guidance', { 
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ language: lang })
+    })
       .then(res => res.json())
       .then(data => {
         setTips(data.text);
         setLoading(false);
       })
       .catch(() => setLoading(false));
-  }, []);
+  }, [lang]);
 
   if (loading) return <div className="h-32 bg-slate-100 rounded-3xl animate-pulse" />;
 
   return (
-    <div className="bg-white rounded-3xl p-5 border border-slate-100 italic text-slate-600 text-sm leading-relaxed prose prose-sm whitespace-pre-line">
+    <div className="bg-white rounded-3xl p-5 border border-slate-100 italic text-slate-600 text-sm leading-relaxed prose prose-sm whitespace-pre-line shadow-sm">
       {tips}
     </div>
   );
 }
 
-function AIBroadcastGenerator({ bloodGroup, area }: { bloodGroup: string, area: string }) {
+function AIBroadcastGenerator({ bloodGroup, area, t }: { bloodGroup: string, area: string, t: any }) {
   const [message, setMessage] = useState('');
   const [loading, setLoading] = useState(false);
 
@@ -796,16 +962,16 @@ function AIBroadcastGenerator({ bloodGroup, area }: { bloodGroup: string, area: 
       <button 
         onClick={generate}
         disabled={loading}
-        className="w-full py-4 px-6 rounded-2xl border-2 border-dashed border-red-200 text-red-600 font-bold hover:bg-red-50 transition-all flex items-center justify-center gap-2"
+        className="w-full py-4 px-6 rounded-2xl border-2 border-dashed border-[#1A237E]/20 text-[#1A237E] font-bold hover:bg-blue-50 transition-all flex items-center justify-center gap-2"
       >
-        {loading ? "Generating..." : "Generate WhatsApp Request"}
+        {loading ? "..." : t.generateBroadcast}
       </button>
       {message && (
-        <div className="p-4 bg-slate-900 text-white rounded-2xl text-sm font-mono relative group">
+        <div className="p-4 bg-slate-900 text-white rounded-2xl text-[10px] font-mono relative group leading-relaxed">
           {message}
           <button 
             onClick={() => navigator.clipboard.writeText(message)}
-            className="absolute top-2 right-2 p-2 bg-slate-800 rounded-lg text-xs hover:bg-slate-700"
+            className="absolute top-2 right-2 p-1.5 bg-slate-800 rounded-lg text-[8px] hover:bg-slate-700 font-bold uppercase tracking-widest"
           >
             Copy
           </button>
@@ -815,26 +981,26 @@ function AIBroadcastGenerator({ bloodGroup, area }: { bloodGroup: string, area: 
   );
 }
 
-function AIAssistant() {
+function AIAssistant({ lang }: { lang: Language }) {
   const [query, setQuery] = useState('');
   const [answer, setAnswer] = useState('');
   const [loading, setLoading] = useState(false);
+  const t = translations[lang];
 
   const ask = async () => {
     if (!query) return;
     setLoading(true);
     setAnswer('');
     try {
-      // For this simple FAQ, we use the explain-eligibility endpoint as a proxy for the prompt
       const res = await fetch('/api/ai/explain-eligibility', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: 'User', lastDonationDate: 'N/A' })
+        body: JSON.stringify({ name: 'User', lastDonationDate: 'N/A', language: lang })
       });
       const data = await res.json();
       setAnswer(data.text);
     } catch (e) {
-      setAnswer("Sorry, I'm having trouble connecting right now.");
+      setAnswer("Sorry, I am having trouble connecting right now.");
     } finally {
       setLoading(false);
     }
@@ -846,16 +1012,16 @@ function AIAssistant() {
         <input 
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          placeholder="Ask about donation safety..." 
-          className="flex-1 p-4 rounded-2xl bg-white border border-slate-200 focus:ring-2 focus:ring-red-500 outline-none"
+          placeholder={t.safetyAsk} 
+          className="flex-1 p-4 rounded-2xl bg-white border border-slate-200 focus:ring-2 focus:ring-red-500 outline-none transition-all"
         />
-        <button onClick={ask} className="bg-red-600 text-white p-4 rounded-2xl shadow-lg">
+        <button onClick={ask} className="bg-[#1A237E] text-white p-4 rounded-2xl shadow-lg hover:bg-blue-900 transition-all active:scale-95">
           <MessageSquare size={24} />
         </button>
       </div>
-      {loading && <div className="p-6 bg-slate-50 border border-slate-100 rounded-3xl animate-pulse">Thinking...</div>}
+      {loading && <div className="p-6 bg-slate-50 border border-slate-100 rounded-3xl animate-pulse text-xs font-bold text-slate-400 tracking-widest uppercase">Thinking...</div>}
       {answer && (
-        <div className="p-6 bg-white border border-slate-100 rounded-3xl shadow-sm text-slate-700 leading-relaxed">
+        <div className="p-6 bg-white border border-slate-100 rounded-3xl shadow-sm text-slate-700 leading-relaxed text-sm whitespace-pre-line italic">
           {answer}
         </div>
       )}
