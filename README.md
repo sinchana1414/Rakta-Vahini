@@ -1,12 +1,5 @@
 # 🩸 Rakta-Vahini — Rural Blood Donor Network
 
-<p align="center">
-  <img src="https://img.shields.io/badge/Platform-Android-3DDC84?style=for-the-badge&logo=android&logoColor=white"/>
-  <img src="https://img.shields.io/badge/Language-Kotlin-7F52FF?style=for-the-badge&logo=kotlin&logoColor=white"/>
-  <img src="https://img.shields.io/badge/Database-Room%20DB-003B57?style=for-the-badge&logo=sqlite&logoColor=white"/>
-  <img src="https://img.shields.io/badge/AI-Gemini%20API-4285F4?style=for-the-badge&logo=google&logoColor=white"/>
-  <img src="https://img.shields.io/badge/Status-Draft%20%2F%20In%20Development-orange?style=for-the-badge"/>
-</p>
 
 > **"A privacy-focused, filtered blood donor network that connects the right donor to the right patient in the right location — eliminating noise and saving lives in rural India."**
 
@@ -81,11 +74,11 @@ Rural hospitals frequently face blood emergencies with no structured, real-time 
 
 ## 📸 Screenshots
 
-| Dashboard | Donor Status | AI Guidance |
-|---|---|---|
-| Emergency alerts, Find a Donor, Blood group quick-select | Register as donor, eligibility cooldown, impact stats | Gemini-powered pre-donation hydration tips |
+<img width="444" height="807" alt="Screenshot 2026-05-18 143002" src="https://github.com/user-attachments/assets/d68157b5-0820-4a84-bbbb-a1e49822bda5" />
+<img width="457" height="819" alt="Screenshot 2026-05-18 140628" src="https://github.com/user-attachments/assets/c1747e7c-7116-4c52-9e41-dd562977f3f3" />
+<img width="454" height="824" alt="Screenshot 2026-05-18 140638" src="https://github.com/user-attachments/assets/4388087f-47b8-4031-bee0-2d88bf0e8830" />
+<img width="458" height="814" alt="Screenshot 2026-05-18 140647" src="https://github.com/user-attachments/assets/167e2084-1d60-4a1d-8faf-01cac7c37be8" />
 
-> Screenshots show the live MVP prototype running in Dharwad, KA.
 
 ---
 
@@ -336,18 +329,6 @@ USN: `1JB22AI052`
 SJB Institute of Technology, Bengaluru
 
 **Program:** MindMatrix VTU Internship — Project #7
-**Version:** 1.0 (Draft — Pending Review)
+**Version:** 1.0 
 **Date:** April 2026
 
----
-
-## 📄 License
-
-This project is developed for academic purposes under the MindMatrix VTU Internship Program.
-All rights reserved — Internal Use Only.
-
----
-
-<p align="center">
-  Made with ❤️ to save lives in rural India &nbsp;•&nbsp; Rakta-Vahini v1.0
-</p>
