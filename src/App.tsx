@@ -23,9 +23,11 @@ import {
   AlertCircle,
   Languages,
   LogOut,
-  LogIn
+  LogIn,
+  Mic,
+  MicOff
 } from 'lucide-react';
-import { onSnapshot, collection, doc, setDoc, updateDoc, addDoc, query, where, orderBy, onSnapshot as onSnapshotFirestore } from 'firebase/firestore';
+import { onSnapshot, collection, doc, setDoc, updateDoc, addDoc, query, where, orderBy, getDocs, onSnapshot as onSnapshotFirestore } from 'firebase/firestore';
 import { onAuthStateChanged, signOut, User as FirebaseUser } from 'firebase/auth';
 import { auth, db as firestore, signInWithGoogle } from './lib/firebase';
 import { checkEligibility, BLOOD_GROUPS, WAIT_PERIOD_DAYS } from './lib/eligibility';
@@ -168,6 +170,24 @@ export default function App() {
 
   const t = translations[lang];
 
+  // SEED DATA FUNCTION
+  const seedSampleData = async () => {
+    const donorsRef = collection(firestore, 'donors');
+    const snapshot = await getDocs(donorsRef);
+    if (snapshot.size < 5) {
+      console.log('Seeding sample donors...');
+      const samples = [
+        { name: 'Ramesh Kumara', bloodGroup: 'O+', location: 'Dharwad', village: 'Hebballi', phone: '+91 98765 43210', isReadyToDonate: true, lastDonationDate: '2023-12-10', registeredAt: Date.now(), userId: 'sample1' },
+        { name: 'Anita Patil', bloodGroup: 'B+', location: 'Hubli', village: 'Keshwapur', phone: '+91 87654 32109', isReadyToDonate: true, lastDonationDate: '2024-01-15', registeredAt: Date.now(), userId: 'sample2' },
+        { name: 'Siddharth M', bloodGroup: 'A-', location: 'Dharwad', village: 'Saptapur', phone: '+91 76543 21098', isReadyToDonate: true, lastDonationDate: '2023-11-20', registeredAt: Date.now(), userId: 'sample3' },
+        { name: 'Priya Hegde', bloodGroup: 'AB+', location: 'Dharwad', village: 'Malmaddi', phone: '+91 65432 10987', isReadyToDonate: true, lastDonationDate: '2024-02-01', registeredAt: Date.now(), userId: 'sample4' },
+      ];
+      for (const s of samples) {
+        await addDoc(donorsRef, s);
+      }
+    }
+  };
+
   // AUTH OBSERVER
   useEffect(() => {
     return onAuthStateChanged(auth, (u) => {
@@ -197,6 +217,7 @@ export default function App() {
 
   // DATA LISTENER: STATS
   useEffect(() => {
+    seedSampleData();
     const unsub = onSnapshot(collection(firestore, 'donors'), (snapshot) => {
       const all = snapshot.docs.map(doc => doc.data() as Donor);
       setStats({
@@ -484,7 +505,7 @@ export default function App() {
               }}>
                 <div className="space-y-2">
                   <label className="text-xs font-bold text-slate-400 uppercase tracking-widest px-1">{t.name}</label>
-                  <input name="name" required className="w-full p-4 rounded-2xl bg-white border border-slate-200 focus:ring-2 focus:ring-red-500 outline-none transition-all" placeholder="Enter your name" />
+                  <input name="name" defaultValue="Sinchana" required className="w-full p-4 rounded-2xl bg-white border border-slate-200 focus:ring-2 focus:ring-red-500 outline-none transition-all font-bold text-slate-800" placeholder="Enter your name" />
                 </div>
 
                 <div className="space-y-2">
@@ -982,20 +1003,22 @@ function AIBroadcastGenerator({ bloodGroup, area, t }: { bloodGroup: string, are
 }
 
 function AIAssistant({ lang }: { lang: Language }) {
-  const [query, setQuery] = useState('');
+  const [queryText, setQueryText] = useState('');
   const [answer, setAnswer] = useState('');
   const [loading, setLoading] = useState(false);
+  const [isListening, setIsListening] = useState(false);
   const t = translations[lang];
 
-  const ask = async () => {
-    if (!query) return;
+  const ask = async (textToAsk?: string) => {
+    const activeQuery = textToAsk || queryText;
+    if (!activeQuery) return;
     setLoading(true);
     setAnswer('');
     try {
-      const res = await fetch('/api/ai/explain-eligibility', {
+      const res = await fetch('/api/ai/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: 'User', lastDonationDate: 'N/A', language: lang })
+        body: JSON.stringify({ message: activeQuery, language: lang })
       });
       const data = await res.json();
       setAnswer(data.text);
@@ -1006,22 +1029,67 @@ function AIAssistant({ lang }: { lang: Language }) {
     }
   };
 
+  const toggleListening = () => {
+    if (isListening) {
+      setIsListening(false);
+      return;
+    }
+
+    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+      alert("Voice search is not supported in this browser.");
+      return;
+    }
+
+    const recognition = new SpeechRecognition();
+    recognition.lang = lang === 'kn' ? 'kn-IN' : 'en-IN';
+    recognition.continuous = false;
+    recognition.interimResults = false;
+
+    recognition.onstart = () => setIsListening(true);
+    recognition.onend = () => setIsListening(false);
+    recognition.onerror = () => setIsListening(false);
+    recognition.onresult = (event: any) => {
+      const transcript = event.results[0][0].transcript;
+      setQueryText(transcript);
+      ask(transcript);
+    };
+
+    recognition.start();
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex gap-2">
-        <input 
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          placeholder={t.safetyAsk} 
-          className="flex-1 p-4 rounded-2xl bg-white border border-slate-200 focus:ring-2 focus:ring-red-500 outline-none transition-all"
-        />
-        <button onClick={ask} className="bg-[#1A237E] text-white p-4 rounded-2xl shadow-lg hover:bg-blue-900 transition-all active:scale-95">
+        <div className="flex-1 relative">
+          <input 
+            value={queryText}
+            onChange={(e) => setQueryText(e.target.value)}
+            placeholder={t.safetyAsk} 
+            className="w-full p-4 pr-12 rounded-2xl bg-white border border-slate-200 focus:ring-2 focus:ring-red-500 outline-none transition-all"
+            onKeyDown={(e) => e.key === 'Enter' && ask()}
+          />
+          <button 
+            onClick={toggleListening}
+            className={cn(
+              "absolute right-3 top-1/2 -translate-y-1/2 p-2 rounded-xl transition-all",
+              isListening ? "text-red-500 bg-red-50 animate-pulse" : "text-slate-400 hover:bg-slate-50"
+            )}
+          >
+            {isListening ? <MicOff size={20} /> : <Mic size={20} />}
+          </button>
+        </div>
+        <button onClick={() => ask()} className="bg-[#1A237E] text-white p-4 rounded-2xl shadow-lg hover:bg-blue-900 transition-all active:scale-95">
           <MessageSquare size={24} />
         </button>
       </div>
       {loading && <div className="p-6 bg-slate-50 border border-slate-100 rounded-3xl animate-pulse text-xs font-bold text-slate-400 tracking-widest uppercase">Thinking...</div>}
       {answer && (
         <div className="p-6 bg-white border border-slate-100 rounded-3xl shadow-sm text-slate-700 leading-relaxed text-sm whitespace-pre-line italic">
+          <div className="flex items-center gap-2 mb-3">
+            <div className="w-1 h-4 bg-[#C62828] rounded-full" />
+            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Assistant Response</span>
+          </div>
           {answer}
         </div>
       )}

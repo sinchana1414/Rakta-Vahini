@@ -1,7 +1,7 @@
 {
   "name": "Rakta-Vahini",
   "description": "A privacy-focused blood donor network for rural India, providing instant emergency search and eligibility tracking.",
-  "requestFramePermissions": [],
+  "requestFramePermissions": ["microphone"],
   "majorCapabilities": [
     "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
   ]

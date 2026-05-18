@@ -76,6 +76,26 @@ app.post('/api/ai/emergency-broadcast', async (req, res) => {
   }
 });
 
+app.post('/api/ai/chat', async (req, res) => {
+  const { message, language } = req.body;
+  try {
+    const langPrompt = language === 'kn' ? 'Response MUST BE in Kannada language.' : 'Response MUST BE in English.';
+    const prompt = `You are an assistant for Rakta-Vahini, a rural blood donation network in Dharwad, India. 
+      Answer the user's question about blood donation, safety, or using the app. 
+      Keep it professional, empathetic, and culturally appropriate for rural India. ${langPrompt}
+      User Message: ${message}`;
+    
+    const response = await ai.models.generateContent({
+      model: "gemini-3-flash-preview",
+      contents: prompt
+    });
+    res.json({ text: response.text });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: 'AI chat failed' });
+  }
+});
+
 async function startServer() {
   if (process.env.NODE_ENV !== "production") {
     const vite = await createViteServer({
