@@ -49,7 +49,17 @@ export const translations = {
     units: 'Units (e.g. 1)',
     saveDonation: 'Save Donation',
     signIn: 'Sign In to Help',
-    signInGoogle: 'Sign In with Google'
+    signInGoogle: 'Sign In with Google',
+    healthCheck: 'AI Health Assessment',
+    healthCheckDesc: 'Describe any symptoms (fever, weakness, etc.) to check eligibility.',
+    checkHealth: 'Check Now',
+    nearbyFacilities: 'Nearby Facilities',
+    findHospitals: 'Find nearby hospitals, blood banks and camps.',
+    openMaps: 'Open Map',
+    healthResult: 'Health Assessment Result',
+    screeningTips: 'AI Risk Detection',
+    describeHealth: 'How are you feeling today?',
+    nearbyHospitals: 'Nearby Hospitals & Blood Banks'
   },
   kn: {
     appName: 'ರಕ್ತ-ವಾಹಿನಿ',
@@ -99,6 +109,16 @@ export const translations = {
     units: 'ಯೂನಿಟ್‌ಗಳು (ಉದಾ. 1)',
     saveDonation: 'ದಾನವನ್ನು ಉಳಿಸಿ',
     signIn: 'ಸಹಾಯ ಮಾಡಲು ಸೈನ್ ಇನ್ ಮಾಡಿ',
-    signInGoogle: 'ಗೂಗಲ್ ಮೂಲಕ ಸೈನ್ ಇನ್ ಮಾಡಿ'
+    signInGoogle: 'ಗೂಗಲ್ ಮೂಲಕ ಸೈನ್ ಇನ್ ಮಾಡಿ',
+    healthCheck: 'AI ಆರೋಗ್ಯ ಮೌಲ್ಯಮಾಪನ',
+    healthCheckDesc: 'ಅರ್ಹತೆಯನ್ನು ಪರೀಕ್ಷಿಸಲು ಯಾವುದೇ ಲಕ್ಷಣಗಳನ್ನು (ಜ್ವರ, ದೌರ್ಬಲ್ಯ ಇತ್ಯಾದಿ) ವಿವರಿಸಿ.',
+    checkHealth: 'ಈಗ ಪರೀಕ್ಷಿಸಿ',
+    nearbyFacilities: 'ಹತ್ತಿರದ ಸೌಲಭ್ಯಗಳು',
+    findHospitals: 'ಹತ್ತಿರದ ಆಸ್ಪತ್ರೆಗಳು, ರಕ್ತ ನಿಧಿಗಳು ಮತ್ತು ಶಿಬಿರಗಳನ್ನು ಹುಡುಕಿ.',
+    openMaps: 'ನಕ್ಷೆಯನ್ನು ತೆರೆಯಿರಿ',
+    healthResult: 'ಆರೋಗ್ಯ ಮೌಲ್ಯಮಾಪನ ಫಲಿತಾಂಶ',
+    screeningTips: 'AI ಅಪಾಯ ಪತ್ತೆ',
+    describeHealth: 'ಇಂದು ನಿಮಗೆ ಹೇಗನಿಸುತ್ತಿದೆ?',
+    nearbyHospitals: 'ಹತ್ತಿರದ ಆಸ್ಪತ್ರೆಗಳು ಮತ್ತು ರಕ್ತ ನಿಧಿಗಳು'
   }
 };

@@ -35,6 +35,14 @@ import { getDonorStatsFromFirestore, searchDonorsInFirestore, type Donor } from 
 import { translations, type Language } from './lib/translations';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
+import { APIProvider, Map, AdvancedMarker, Pin, InfoWindow, useMapsLibrary, useMap, useAdvancedMarkerRef } from '@vis.gl/react-google-maps';
+
+const GOOGLE_MAPS_API_KEY =
+  process.env.GOOGLE_MAPS_PLATFORM_KEY ||
+  (import.meta as any).env?.VITE_GOOGLE_MAPS_PLATFORM_KEY ||
+  (globalThis as any).GOOGLE_MAPS_PLATFORM_KEY ||
+  '';
+const hasValidMapsKey = Boolean(GOOGLE_MAPS_API_KEY) && GOOGLE_MAPS_API_KEY !== 'YOUR_API_KEY';
 
 // UTILS
 function cn(...inputs: ClassValue[]) {
@@ -154,7 +162,7 @@ const Header = ({ lang, onToggleLang, user }: { lang: Language, onToggleLang: ()
 };
 
 // TYPES
-type View = 'SPLASH' | 'HOME' | 'REGISTER' | 'DONOR_DASH' | 'SEARCH' | 'RESULTS' | 'HISTORY' | 'AI_HELP';
+type View = 'SPLASH' | 'HOME' | 'REGISTER' | 'DONOR_DASH' | 'SEARCH' | 'RESULTS' | 'HISTORY' | 'AI_HELP' | 'MAPS' | 'HEALTH_CHECK';
 
 export default function App() {
   const [view, setView] = useState<View>('SPLASH');
@@ -453,6 +461,35 @@ export default function App() {
                 </div>
                 <Button variant="success" size="sm" onClick={() => setView('AI_HELP')} className="w-auto px-6 whitespace-nowrap">{t.getMoreTips}</Button>
               </div>
+
+              {/* NEW: Health Check Card */}
+              <Card className="col-span-12 md:col-span-6 bg-[#FFF9C4] border-[#FBC02D]/20 p-6 flex flex-col justify-between">
+                <div>
+                  <div className="flex items-center gap-2 mb-3">
+                    <div className="bg-[#FBC02D] p-1.5 rounded-lg">
+                      <span className="text-white text-[10px] font-bold">AI</span>
+                    </div>
+                    <h4 className="text-[10px] font-bold text-[#F57F17] uppercase tracking-widest">{t.healthCheck}</h4>
+                  </div>
+                  <p className="text-[#F57F17] font-bold text-lg mb-2">{t.screeningTips}</p>
+                  <p className="text-[#AFB42B] text-xs leading-relaxed mb-6">{t.healthCheckDesc}</p>
+                </div>
+                <Button variant="secondary" size="sm" onClick={() => setView('HEALTH_CHECK')} className="w-auto px-6 bg-white text-[#F57F17] border-none shadow-none uppercase">{t.checkHealth}</Button>
+              </Card>
+
+              {/* NEW: Maps Card */}
+              <Card className="col-span-12 md:col-span-6 bg-[#E1F5FE] border-[#0288D1]/20 p-6">
+                <div className="flex items-center gap-3 mb-4">
+                  <div className="bg-[#0288D1] p-3 rounded-2xl text-white">
+                    <MapPin size={24} />
+                  </div>
+                  <div>
+                    <h4 className="text-[10px] font-bold text-[#0288D1] uppercase tracking-widest">{t.nearbyFacilities}</h4>
+                    <p className="text-[#01579B] font-bold text-sm">{t.findHospitals}</p>
+                  </div>
+                </div>
+                <Button variant="navy" size="sm" onClick={() => setView('MAPS')} className="w-full uppercase">{t.openMaps}</Button>
+              </Card>
 
               {/* Recent Activity placeholder to match Bento look */}
               <Card className="col-span-12 p-6 flex flex-col sm:flex-row items-center justify-between gap-6 overflow-hidden">
@@ -825,34 +862,100 @@ export default function App() {
           </motion.div>
         )}
 
+        {/* MAPS VIEW */}
+        {view === 'MAPS' && (
+          <motion.div 
+            key="maps"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            className="flex-1 flex flex-col max-w-4xl mx-auto w-full p-4 h-full"
+          >
+            <Header lang={lang} onToggleLang={toggleLang} user={user} />
+            <div className="flex-1 flex flex-col overflow-hidden px-2 pb-24 h-full">
+               <button onClick={() => setView('HOME')} className="mb-4 p-2 -ml-2 text-slate-400 flex items-center gap-2 font-bold text-sm shrink-0">
+                <ChevronLeft size={20} /> Dashboard
+              </button>
+              <h1 className="text-2xl font-bold mb-4 text-[#1A237E] flex items-center gap-2 shrink-0">
+                <MapPin className="text-[#0288D1]" /> {t.nearbyHospitals}
+              </h1>
+              
+              <div className="flex-1 min-h-[400px] rounded-3xl overflow-hidden border border-slate-200 shadow-lg relative">
+                <NearbyMap lang={lang} />
+              </div>
+            </div>
+          </motion.div>
+        )}
+
+        {/* HEALTH CHECK VIEW */}
+        {view === 'HEALTH_CHECK' && (
+          <motion.div 
+            key="health-check"
+            initial={{ opacity: 0, x: 50 }}
+            animate={{ opacity: 1, x: 0 }}
+            className="flex-1 flex flex-col max-w-md mx-auto w-full p-4"
+          >
+            <Header lang={lang} onToggleLang={toggleLang} user={user} />
+            <div className="flex-1 overflow-y-auto px-2 pb-24">
+              <button onClick={() => setView('HOME')} className="mb-6 p-2 -ml-2 text-slate-400 flex items-center gap-2 font-bold text-sm">
+                <ChevronLeft size={20} /> Dashboard
+              </button>
+              <h1 className="text-2xl font-bold mb-4 text-[#1A237E] flex items-center gap-2">
+                <LifeBuoy className="text-[#FBC02D]" /> {t.healthCheck}
+              </h1>
+              <p className="text-slate-500 text-sm mb-8 leading-relaxed">
+                {t.healthCheckDesc}
+              </p>
+
+              <AIHealthScreening lang={lang} t={t} />
+            </div>
+          </motion.div>
+        )}
+
       </AnimatePresence>
 
       {/* GLOBAL FOOTER (Only when not in splash) */}
       {view !== 'SPLASH' && (
         <footer className="footer bg-white border-t border-slate-200 px-6 sm:px-8 py-4 flex flex-col sm:flex-row justify-between items-center gap-4 z-50">
-          <div className="flex gap-6 sm:gap-8">
+          <div className="flex gap-4 sm:gap-6 flex-wrap justify-center">
             <button 
               onClick={() => setView('HOME')} 
-              className={cn("text-sm font-bold transition-all flex items-center gap-2", view === 'HOME' ? "text-[#C62828]" : "text-slate-400 hover:text-slate-600")}
+              className={cn("text-xs font-bold transition-all flex items-center gap-2", view === 'HOME' ? "text-[#C62828]" : "text-slate-400 hover:text-slate-600")}
             >
-              <div className={cn("w-2 h-2 rounded-full", view === 'HOME' ? "bg-[#C62828]" : "bg-transparent")} />
+              <div className={cn("w-1.5 h-1.5 rounded-full", view === 'HOME' ? "bg-[#C62828]" : "bg-transparent")} />
               {t.dashboard}
             </button>
             <button 
+              onClick={() => setView('MAPS')} 
+              className={cn("text-xs font-bold transition-all flex items-center gap-2", view === 'MAPS' ? "text-[#C62828]" : "text-slate-400 hover:text-slate-600")}
+            >
+              <div className={cn("w-1.5 h-1.5 rounded-full", view === 'MAPS' ? "bg-[#C62828]" : "bg-transparent")} />
+              MAPS
+            </button>
+            <button 
+              onClick={() => setView('HEALTH_CHECK')} 
+              className={cn("text-xs font-bold transition-all flex items-center gap-2", view === 'HEALTH_CHECK' ? "text-[#C62828]" : "text-slate-400 hover:text-slate-600")}
+            >
+              <div className={cn("w-1.5 h-1.5 rounded-full", view === 'HEALTH_CHECK' ? "bg-[#C62828]" : "bg-transparent")} />
+              HEALTH
+            </button>
+            <button 
               onClick={() => activeDonor && setView('HISTORY')} 
-              className={cn("text-sm font-bold transition-all", view === 'HISTORY' ? "text-[#C62828]" : "text-slate-400 hover:text-slate-600 disabled:opacity-30")}
+              className={cn("text-xs font-bold transition-all", view === 'HISTORY' ? "text-[#D32F2F]" : "text-slate-400 hover:text-slate-600 disabled:opacity-30")}
               disabled={!activeDonor}
             >
               {t.history}
             </button>
             <button 
               onClick={() => setView('AI_HELP')} 
-              className={cn("text-sm font-bold transition-all", view === 'AI_HELP' ? "text-[#C62828]" : "text-slate-400 hover:text-slate-600")}
+              className={cn("text-xs font-bold transition-all", view === 'AI_HELP' ? "text-[#D32F2F]" : "text-slate-400 hover:text-slate-600")}
             >
-              {t.privacy}
+              FAQ
             </button>
           </div>
-          <div className="px-5 py-2 bg-slate-900 text-white rounded-full text-[10px] font-black tracking-widest hover:bg-black transition-colors cursor-pointer">
+          <div 
+            onClick={() => window.location.href = 'tel:112'}
+            className="px-5 py-2 bg-slate-900 text-white rounded-full text-[10px] font-black tracking-widest hover:bg-black transition-colors cursor-pointer"
+          >
             {t.emergencySos}
           </div>
         </footer>
@@ -1092,6 +1195,162 @@ function AIAssistant({ lang }: { lang: Language }) {
           </div>
           {answer}
         </div>
+      )}
+    </div>
+  );
+}
+
+function NearbyMap({ lang }: { lang: Language }) {
+  if (!hasValidMapsKey) {
+    return (
+      <div className="flex flex-col items-center justify-center h-full bg-slate-50 p-8 text-center">
+        <MapPin size={48} className="text-slate-300 mb-4" />
+        <h3 className="font-bold text-slate-800 mb-2">Google Maps Key Required</h3>
+        <p className="text-xs text-slate-500 max-w-xs leading-relaxed mb-6">
+          To view nearby blood banks and hospitals, please add your Google Maps API key in the project settings.
+        </p>
+        <div className="text-[9px] text-left bg-white p-4 rounded-xl border border-slate-200">
+          <p className="font-bold mb-1">How to setup:</p>
+          <ul className="list-disc ml-4 space-y-1">
+            <li>Open Settings (Gear icon top-right)</li>
+            <li>Go to Secrets</li>
+            <li>Add <b>GOOGLE_MAPS_PLATFORM_KEY</b></li>
+          </ul>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <APIProvider apiKey={GOOGLE_MAPS_API_KEY} version="weekly">
+      <Map
+        defaultCenter={{ lat: 15.4589, lng: 75.0078 }} // Dharwad center
+        defaultZoom={13}
+        mapId="BLOOD_NETWORK_MAP"
+        internalUsageAttributionIds={['gmp_mcp_codeassist_v1_aistudio']}
+        style={{ width: '100%', height: '100%' }}
+        gestureHandling={'greedy'}
+        disableDefaultUI={true}
+      >
+        <MapContent />
+      </Map>
+    </APIProvider>
+  );
+}
+
+function MapContent() {
+  const map = useMap();
+  const placesLib = useMapsLibrary('places');
+  const [places, setPlaces] = useState<google.maps.places.Place[]>([]);
+  const [selectedPlace, setSelectedPlace] = useState<google.maps.places.Place | null>(null);
+
+  useEffect(() => {
+    if (!placesLib || !map) return;
+
+    // Search for blood banks, hospitals, and medical centers
+    placesLib.Place.searchByText({
+      textQuery: 'Blood Banks and Hospitals in Dharwad Hubli',
+      fields: ['displayName', 'location', 'formattedAddress', 'id'],
+      locationBias: map.getCenter(),
+      maxResultCount: 15,
+    }).then(({ places }) => {
+      setPlaces(places);
+    });
+  }, [placesLib, map]);
+
+  return (
+    <>
+      {places.map((place) => (
+        <AdvancedMarker
+          key={place.id}
+          position={place.location}
+          title={place.displayName}
+          onClick={() => setSelectedPlace(place)}
+        >
+          <Pin 
+            background={place.displayName?.toLowerCase().includes('blood') ? '#C62828' : '#1A237E'} 
+            glyphColor="#fff" 
+            borderColor="#fff"
+          />
+        </AdvancedMarker>
+      ))}
+
+      {selectedPlace && (
+        <InfoWindow
+          position={selectedPlace.location}
+          onCloseClick={() => setSelectedPlace(null)}
+        >
+          <div className="p-2 max-w-[200px]">
+            <h4 className="font-bold text-sm text-[#1A237E] mb-1">{selectedPlace.displayName}</h4>
+            <p className="text-[10px] text-slate-500">{selectedPlace.formattedAddress}</p>
+            <Button size="xs" variant="navy" className="mt-3" onClick={() => window.open(`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(selectedPlace.displayName || '')}&query_place_id=${selectedPlace.id}`)}>
+              Navigate
+            </Button>
+          </div>
+        </InfoWindow>
+      )}
+    </>
+  );
+}
+
+function AIHealthScreening({ lang, t }: { lang: Language, t: any }) {
+  const [input, setInput] = useState('');
+  const [result, setResult] = useState('');
+  const [loading, setLoading] = useState(false);
+
+  const checkHealth = async () => {
+    if (!input) return;
+    setLoading(true);
+    setResult('');
+    try {
+      const res = await fetch('/api/ai/screen-health', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ description: input, language: lang })
+      });
+      const data = await res.json();
+      setResult(data.text);
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="space-y-6">
+      <div className="space-y-4">
+        <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest px-1">{t.describeHealth}</label>
+        <textarea 
+          value={input}
+          onChange={(e) => setInput(e.target.value)}
+          className="w-full h-32 p-4 rounded-2xl bg-white border border-slate-200 focus:ring-2 focus:ring-yellow-500 outline-none transition-all resize-none text-sm"
+          placeholder="Example: I've had a mild fever for 2 days but feel okay otherwise. Is it safe to donate?"
+        />
+        <Button 
+          variant="navy" 
+          disabled={!input || loading} 
+          onClick={checkHealth}
+          className="bg-[#FBC02D] hover:bg-[#F9A825] shadow-yellow-100 border-none px-6"
+        >
+          {loading ? 'Analyzing...' : t.checkHealth}
+        </Button>
+      </div>
+
+      {result && (
+        <motion.div 
+          initial={{ opacity: 0, scale: 0.95 }}
+          animate={{ opacity: 1, scale: 1 }}
+          className="p-6 bg-white border-2 border-yellow-100 rounded-3xl shadow-sm relative overflow-hidden"
+        >
+           <div className="absolute top-0 left-0 w-1.5 h-full bg-[#FBC02D]" />
+           <div className="flex items-center gap-2 mb-4">
+            <span className="text-[10px] font-bold text-yellow-600 uppercase tracking-widest">{t.healthResult}</span>
+          </div>
+          <div className="text-slate-700 text-sm leading-relaxed whitespace-pre-line italic">
+            {result}
+          </div>
+        </motion.div>
       )}
     </div>
   );

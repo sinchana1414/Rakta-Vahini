@@ -96,6 +96,30 @@ app.post('/api/ai/chat', async (req, res) => {
   }
 });
 
+app.post('/api/ai/screen-health', async (req, res) => {
+  const { description, language } = req.body;
+  try {
+    const langPrompt = language === 'kn' ? 'Response MUST BE in Kannada language.' : 'Response MUST BE in English.';
+    const prompt = `Analyze the following health description from a potential blood donor. 
+      Identify if they have any risk factors like fever, weakness, recent surgery, low weight, or other symptoms that might disqualify them temporarily or permanently.
+      Respond with:
+      1. A clear "Eligible", "Likely Not Eligible", or "Needs Medical Consultation" status.
+      2. A brief, empathetic explanation of why.
+      3. A clear recommendation (e.g., "Wait for 2 weeks", "Consult a doctor").
+      Keep it professional and focused on safety. ${langPrompt}
+      Donor Status: ${description}`;
+    
+    const response = await ai.models.generateContent({
+      model: "gemini-3-flash-preview",
+      contents: prompt
+    });
+    res.json({ text: response.text });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: 'AI health screening failed' });
+  }
+});
+
 async function startServer() {
   if (process.env.NODE_ENV !== "production") {
     const vite = await createViteServer({
